@@ -54,3 +54,22 @@ def rating_vs_sentiment_chart(df: pd.DataFrame):
         barmode="stack",
     )
     return fig
+def priority_distribution_chart(df: pd.DataFrame):
+    """Bar chart of how many reviews fall into each priority tier."""
+    counts = df["Priority"].value_counts().reindex(["High", "Medium", "Low"]).fillna(0).reset_index()
+    counts.columns = ["Priority", "Count"]
+
+    color_map = {"High": "#e74c3c", "Medium": "#f39c12", "Low": "#2ecc71"}
+
+    fig = px.bar(
+        counts,
+        x="Priority",
+        y="Count",
+        color="Priority",
+        color_discrete_map=color_map,
+        title="Reviews by Action Priority",
+        text="Count",
+        category_orders={"Priority": ["High", "Medium", "Low"]},
+    )
+    fig.update_layout(showlegend=False)
+    return fig

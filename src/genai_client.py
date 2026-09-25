@@ -77,3 +77,28 @@ def analyze_review(review_text: str, max_retries: int = 3) -> dict:
         "summary": f"Analysis failed: {last_error}",
         "error": True,
     }
+
+def compute_priority(analysis: dict, star_rating: int) -> str:
+    """
+    Derive an action-priority flag for a seller triaging reviews.
+    High: negative sentiment with high confidence, OR a low star rating
+          that the AI also read as negative (confirmed real complaint).
+    Medium: negative/neutral with lower confidence, or a rating/sentiment
+             mismatch worth a human look.
+    Low: everything else (confirmed positive, or low-confidence noise).
+    """
+    sentiment = analysis.get("sentiment", "unknown")
+    confidence = analysis.get("confidence", 0.0)
+
+    if analysis.get("error"):
+        return "Medium"  # unresolved analysis deserves a human look
+
+    if sentiment == "negative" and confidence >= 0.7:
+        return "High"
+    if sentiment == "negative" and star_rating <= 2:
+        return "High"
+    if sentiment in ("negative", "neutral") and confidence < 0.7:
+        return "Medium"
+    if sentiment == "positive" and star_rating <= 2:
+        return "Medium"  # mismatch worth a glance
+    return "Low"

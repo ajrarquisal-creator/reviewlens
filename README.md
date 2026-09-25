@@ -1,4 +1,4 @@
-\# ReviewLens 🔍
+﻿\# ReviewLens 🔍
 
 
 
@@ -10,7 +10,7 @@ A Generative AI web application that analyzes real Amazon product reviews using 
 
 
 
-ReviewLens takes a cleaned sample of Amazon product reviews and sends each one to a GenAI model (via the Groq API) for structured analysis. The app returns sentiment classification, a confidence score, extracted keywords, and a one-sentence summary for every review, then visualizes the results with interactive Plotly charts. It's built for students, instructors, or small businesses who want a quick, explainable read on customer sentiment without manually reading hundreds of reviews.
+ReviewLens is a seller review triage tool. It takes a cleaned sample of Amazon product reviews, sends each one to a GenAI model (via the Groq API) for structured analysis, and computes an action-priority flag (High/Medium/Low) from the sentiment, confidence, and star rating. Instead of reading hundreds of reviews by hand, a seller can jump straight to the 'Flagged for Action' tab and see which reviews need a response first.
 
 
 
@@ -140,3 +140,14 @@ pip install -r requirements.txt
 
 Create a `.env` file in the project root with:
 
+
+
+## Action Priority Logic
+
+Each analyzed review is assigned a priority tier to help a seller triage quickly:
+
+- **High** — negative sentiment with confidence ≥ 0.7, OR negative sentiment paired with a 1–2 star rating (a confirmed real complaint)
+- **Medium** — negative/neutral sentiment with lower confidence, a failed analysis, or a positive/low-star mismatch worth a glance
+- **Low** — everything else (confirmed positive reviews, or low-confidence noise)
+
+The Overview tab shows a priority breakdown chart, and the "Flagged for Action" tab filters straight to High-priority reviews with a one-click CSV export.

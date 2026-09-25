@@ -1,19 +1,23 @@
-import streamlit as st
+﻿import streamlit as st
 import pandas as pd
 import os
 
 from src.load_data import load_dataset, clean_dataset, sample_dataset, validate_dataset
-from src.genai_client import analyze_review
+from src.genai_client import analyze_review, compute_priority
 from src.visualize import (
     sentiment_distribution_chart,
     confidence_distribution_chart,
     rating_vs_sentiment_chart,
+    priority_distribution_chart,
 )
 
 st.set_page_config(page_title="ReviewLens", page_icon="🔍", layout="wide")
 
 st.title("ReviewLens 🔍")
-st.write("Analyze real Amazon product reviews using GenAI — sentiment, keywords, and summaries.")
+st.write(
+    "A seller review triage tool — uses GenAI to read customer reviews and flag "
+    "which ones need action first, so you are not reading hundreds of reviews by hand."
+)
 
 # ----- Load & prepare dataset -----
 try:
@@ -31,35 +35,36 @@ if clean_df.empty:
     st.error("❌ Dataset is empty after cleaning. Nothing to analyze.")
     st.stop()
 
-st.subheader("Dataset Overview")
-col1, col2 = st.columns(2)
-col1.metric("Total cleaned reviews available", len(clean_df))
-col2.metric("Columns", ", ".join(clean_df.columns))
-
-with st.expander("Preview raw cleaned data"):
-    st.dataframe(clean_df.head(10))
+with st.container(border=True):
+    st.subheader("Dataset Overview")
+    col1, col2 = st.columns(2)
+    col1.metric("Total cleaned reviews available", len(clean_df))
+    col2.metric("Columns", ", ".join(clean_df.columns))
+    with st.expander("Preview raw cleaned data"):
+        st.dataframe(clean_df.head(10))
 
 # ----- Controls -----
-st.subheader("Analysis Settings")
+with st.container(border=True):
+    st.subheader("Analysis Settings")
 
-max_available = min(len(clean_df), 100)
-num_records = st.slider(
-    "Number of records to analyze",
-    min_value=5,
-    max_value=max_available,
-    value=min(20, max_available),
-    help="Fewer records = faster and cheaper. Analysis calls the Groq API once per record.",
-)
+    max_available = min(len(clean_df), 100)
+    num_records = st.slider(
+        "Number of records to analyze",
+        min_value=5,
+        max_value=max_available,
+        value=min(20, max_available),
+        help="Fewer records = faster and cheaper. Analysis calls the Groq API once per record.",
+    )
 
-confidence_threshold = st.slider(
-    "Minimum confidence to display",
-    min_value=0.0,
-    max_value=1.0,
-    value=0.0,
-    step=0.05,
-)
+    confidence_threshold = st.slider(
+        "Minimum confidence to display",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.0,
+        step=0.05,
+    )
 
-run_clicked = st.button("🚀 Run Analysis", type="primary")
+    run_clicked = st.button("🚀 Run Analysis", type="primary")
 
 # ----- Run analysis (only on button click) -----
 if run_clicked:
@@ -78,11 +83,13 @@ if run_clicked:
             text=f"Analyzing {i} of {len(sample_df)} records...",
         )
         analysis = analyze_review(row.Text)
+        priority = compute_priority(analysis, row.Score)
         results.append({
             "Review": row.Text[:150] + ("..." if len(row.Text) > 150 else ""),
             "Star Rating": row.Score,
             "AI Sentiment": analysis.get("sentiment", "unknown"),
             "Confidence": analysis.get("confidence", 0.0),
+            "Priority": priority,
             "Keywords": ", ".join(analysis.get("keywords", [])),
             "Summary": analysis.get("summary", ""),
             "Error": analysis.get("error", False),
@@ -100,35 +107,77 @@ if "results_df" in st.session_state:
     if error_count > 0:
         st.warning(f"⚠️ {error_count} review(s) failed to analyze and show as 'unknown'.")
 
-    st.subheader("Results")
+    tab_overview, tab_queue, tab_flagged = st.tabs(
+        ["📊 Overview", "📋 Review Queue", "🚩 Flagged for Action"]
+    )
 
-    filter_col1, filter_col2 = st.columns(2)
-    with filter_col1:
-        sentiment_filter = st.multiselect(
-            "Filter by sentiment",
-            options=sorted(results_df["AI Sentiment"].unique()),
-            default=sorted(results_df["AI Sentiment"].unique()),
+    # ----- Overview tab -----
+    with tab_overview:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Analyzed", len(results_df))
+        pct_negative = (results_df["AI Sentiment"] == "negative").mean() * 100
+        m2.metric("% Negative", f"{pct_negative:.0f}%")
+        m3.metric("Avg Confidence", f"{results_df['Confidence'].mean():.2f}")
+        flagged_count = (results_df["Priority"] == "High").sum()
+        m4.metric("🚩 High Priority", flagged_count)
+
+        chart_col1, chart_col2 = st.columns(2)
+        with chart_col1:
+            st.plotly_chart(sentiment_distribution_chart(results_df), use_container_width=True)
+        with chart_col2:
+            st.plotly_chart(priority_distribution_chart(results_df), use_container_width=True)
+
+        chart_col3, chart_col4 = st.columns(2)
+        with chart_col3:
+            st.plotly_chart(confidence_distribution_chart(results_df), use_container_width=True)
+        with chart_col4:
+            st.plotly_chart(rating_vs_sentiment_chart(results_df), use_container_width=True)
+
+    # ----- Review Queue tab -----
+    with tab_queue:
+        filter_col1, filter_col2 = st.columns(2)
+        with filter_col1:
+            sentiment_filter = st.multiselect(
+                "Filter by sentiment",
+                options=sorted(results_df["AI Sentiment"].unique()),
+                default=sorted(results_df["AI Sentiment"].unique()),
+            )
+        with filter_col2:
+            search_term = st.text_input("Search in review text")
+
+        filtered = results_df[
+            (results_df["AI Sentiment"].isin(sentiment_filter))
+            & (results_df["Confidence"] >= confidence_threshold)
+        ]
+        if search_term:
+            filtered = filtered[filtered["Review"].str.contains(search_term, case=False, na=False)]
+
+        st.dataframe(filtered.drop(columns=["Error"]), use_container_width=True)
+        st.caption(f"Showing {len(filtered)} of {len(results_df)} analyzed reviews.")
+
+        csv_data = filtered.drop(columns=["Error"]).to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Export queue to CSV",
+            data=csv_data,
+            file_name="reviewlens_results.csv",
+            mime="text/csv",
         )
-    with filter_col2:
-        search_term = st.text_input("Search in review text")
 
-    filtered = results_df[
-        (results_df["AI Sentiment"].isin(sentiment_filter))
-        & (results_df["Confidence"] >= confidence_threshold)
-    ]
-    if search_term:
-        filtered = filtered[filtered["Review"].str.contains(search_term, case=False, na=False)]
+    # ----- Flagged for Action tab -----
+    with tab_flagged:
+        flagged_df = results_df[results_df["Priority"] == "High"].drop(columns=["Error"])
+        if flagged_df.empty:
+            st.info("No high-priority reviews in this batch. 🎉")
+        else:
+            st.warning(f"{len(flagged_df)} review(s) need attention first.")
+            st.dataframe(flagged_df, use_container_width=True)
 
-    st.dataframe(filtered.drop(columns=["Error"]), use_container_width=True)
-    st.caption(f"Showing {len(filtered)} of {len(results_df)} analyzed reviews.")
-
-    st.subheader("Visual Insights")
-    chart_col1, chart_col2 = st.columns(2)
-    with chart_col1:
-        st.plotly_chart(sentiment_distribution_chart(results_df), use_container_width=True)
-    with chart_col2:
-        st.plotly_chart(confidence_distribution_chart(results_df), use_container_width=True)
-
-    st.plotly_chart(rating_vs_sentiment_chart(results_df), use_container_width=True)
+            flagged_csv = flagged_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "⬇️ Export flagged reviews to CSV",
+                data=flagged_csv,
+                file_name="reviewlens_flagged.csv",
+                mime="text/csv",
+            )
 else:
     st.info("👆 Configure settings above and click **Run Analysis** to begin.")
