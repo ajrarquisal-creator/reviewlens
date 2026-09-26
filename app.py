@@ -92,16 +92,38 @@ if run_clicked:
 
     sample_df = sample_dataset(clean_df, n=num_records)
 
+    if "analysis_cache" not in st.session_state:
+        st.session_state["analysis_cache"] = {}
+    cache = st.session_state["analysis_cache"]
+
     results = []
     raw_analyses = []
+    tally = {"positive": 0, "neutral": 0, "negative": 0, "unknown": 0}
+    cache_hits = 0
     progress_bar = st.progress(0, text="Starting analysis...")
 
     for i, row in enumerate(sample_df.itertuples(), start=1):
+        if row.Text in cache:
+            analysis = cache[row.Text]
+            cache_hits += 1
+        else:
+            analysis = analyze_review(row.Text)
+            cache[row.Text] = analysis
+
+        sentiment_key = analysis.get("sentiment", "unknown")
+        tally[sentiment_key] = tally.get(sentiment_key, 0) + 1
+
         progress_bar.progress(
             i / len(sample_df),
-            text=f"Analyzing {i} of {len(sample_df)} records...",
+            text=(
+                f"Analyzing {i} of {len(sample_df)} — "
+                f"✅ {tally['positive']} positive, "
+                f"⚪ {tally['neutral']} neutral, "
+                f"❌ {tally['negative']} negative"
+                + (f" ({cache_hits} cached)" if cache_hits else "")
+            ),
         )
-        analysis = analyze_review(row.Text)
+
         priority = compute_priority(analysis, row.Score)
         raw_analyses.append(analysis)
         results.append({
