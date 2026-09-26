@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 from src.load_data import load_dataset, clean_dataset, sample_dataset, validate_dataset
-from src.genai_client import analyze_review, compute_priority, draft_reply, summarize_themes, is_conflict, aggregate_aspects, get_flag_reason
+from src.genai_client import analyze_review, compute_priority, draft_reply, summarize_themes, is_conflict, aggregate_aspects, get_flag_reason, explain_conflict
 from src.visualize import (
     sentiment_distribution_chart,
     confidence_distribution_chart,
@@ -136,8 +136,8 @@ if "results_df" in st.session_state:
     if error_count > 0:
         st.warning(f"⚠️ {error_count} review(s) failed to analyze and show as 'unknown'.")
 
-    tab_overview, tab_queue, tab_flagged = st.tabs(
-        ["📊 Overview", "📋 Review Queue", "🚩 Flagged for Action"]
+    tab_overview, tab_queue, tab_flagged, tab_conflicts = st.tabs(
+        ["📊 Overview", "📋 Review Queue", "🚩 Flagged for Action", "⚡ Conflicts"]
     )
 
     # ----- Overview tab -----
@@ -309,5 +309,32 @@ if "results_df" in st.session_state:
                             st.session_state[reply_key] = reply
                     if reply_key in st.session_state:
                         st.text_area("Suggested reply", st.session_state[reply_key], key=f"reply_area_{idx}")
+
+    # ----- Conflicts tab -----
+    with tab_conflicts:
+        results_df["Conflict"] = results_df.apply(
+            lambda r: is_conflict(r["AI Sentiment"], r["Star Rating"]), axis=1
+        )
+        conflict_df = results_df[results_df["Conflict"]].drop(columns=["Error", "Conflict"])
+
+        if conflict_df.empty:
+            st.info("No sentiment/rating conflicts detected in this batch. 👍")
+        else:
+            st.warning(f"{len(conflict_df)} review(s) show a mismatch between AI sentiment and star rating.")
+            for idx, row in conflict_df.reset_index(drop=True).iterrows():
+                with st.expander(f"Review: {row['Review'][:80]}..."):
+                    explanation = explain_conflict(row["AI Sentiment"], row["Star Rating"])
+                    st.write(f"**Star Rating:** {row['Star Rating']}⭐ | **AI Sentiment:** {row['AI Sentiment']} | **Confidence:** {row['Confidence']:.0%}")
+                    st.error(f"**Conflict:** {explanation}")
+                    st.write(f"**Summary:** {row['Summary']}")
+
+            conflict_csv = conflict_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "⬇️ Export conflicts to CSV",
+                data=conflict_csv,
+                file_name="reviewlens_conflicts.csv",
+                mime="text/csv",
+            )
+
 else:
     st.info("👆 Configure settings above and click **Run Analysis** to begin.")
