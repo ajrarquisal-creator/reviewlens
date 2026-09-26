@@ -3,13 +3,30 @@ import pandas as pd
 import os
 
 from src.load_data import load_dataset, clean_dataset, sample_dataset, validate_dataset
-from src.genai_client import analyze_review, compute_priority
+from src.genai_client import analyze_review, compute_priority, draft_reply
 from src.visualize import (
     sentiment_distribution_chart,
     confidence_distribution_chart,
     rating_vs_sentiment_chart,
     priority_distribution_chart,
 )
+
+
+def style_results(df):
+    def color_sentiment(val):
+        colors = {"positive": "#D1FADF", "negative": "#FEE4E2", "neutral": "#F2F4F7", "unknown": "#FEF0C7"}
+        return f"background-color: {colors.get(val, '')}"
+
+    def color_priority(val):
+        colors = {"High": "#FEE4E2", "Medium": "#FEF0C7", "Low": "#D1FADF"}
+        return f"background-color: {colors.get(val, '')}"
+
+    styler = df.style
+    if "AI Sentiment" in df.columns:
+        styler = styler.map(color_sentiment, subset=["AI Sentiment"])
+    if "Priority" in df.columns:
+        styler = styler.map(color_priority, subset=["Priority"])
+    return styler
 
 st.set_page_config(page_title="ReviewLens", page_icon="🔍", layout="wide")
 
@@ -152,7 +169,7 @@ if "results_df" in st.session_state:
         if search_term:
             filtered = filtered[filtered["Review"].str.contains(search_term, case=False, na=False)]
 
-        st.dataframe(filtered.drop(columns=["Error"]), use_container_width=True)
+        st.dataframe(style_results(filtered.drop(columns=["Error"])), use_container_width=True)
         st.caption(f"Showing {len(filtered)} of {len(results_df)} analyzed reviews.")
 
         csv_data = filtered.drop(columns=["Error"]).to_csv(index=False).encode("utf-8")
@@ -170,7 +187,7 @@ if "results_df" in st.session_state:
             st.info("No high-priority reviews in this batch. 🎉")
         else:
             st.warning(f"{len(flagged_df)} review(s) need attention first.")
-            st.dataframe(flagged_df, use_container_width=True)
+            st.dataframe(style_results(flagged_df), use_container_width=True)
 
             flagged_csv = flagged_df.to_csv(index=False).encode("utf-8")
             st.download_button(
@@ -179,5 +196,18 @@ if "results_df" in st.session_state:
                 file_name="reviewlens_flagged.csv",
                 mime="text/csv",
             )
+
+            st.subheader("✍️ Draft Replies")
+            for idx, row in flagged_df.reset_index(drop=True).iterrows():
+                with st.expander(f"Review: {row['Review'][:80]}..."):
+                    st.write(f"**Sentiment:** {row['AI Sentiment']} | **Star Rating:** {row['Star Rating']}")
+                    st.write(f"**Summary:** {row['Summary']}")
+                    reply_key = f"reply_{idx}"
+                    if st.button(f"✍️ Draft Reply", key=f"draft_btn_{idx}"):
+                        with st.spinner("Drafting reply..."):
+                            reply = draft_reply(row["Review"], row["AI Sentiment"])
+                            st.session_state[reply_key] = reply
+                    if reply_key in st.session_state:
+                        st.text_area("Suggested reply", st.session_state[reply_key], key=f"reply_area_{idx}")
 else:
     st.info("👆 Configure settings above and click **Run Analysis** to begin.")
