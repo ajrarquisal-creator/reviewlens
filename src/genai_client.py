@@ -64,7 +64,7 @@ def analyze_review(review_text: str, max_retries: int = 3) -> dict:
                     {"role": "user", "content": review_text},
                 ],
                 temperature=0.2,
-                max_tokens=300,
+                max_tokens=600,
                 response_format={"type": "json_object"},
             )
             raw = response.choices[0].message.content

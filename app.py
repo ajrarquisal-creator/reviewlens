@@ -106,12 +106,14 @@ if run_clicked:
         raw_analyses.append(analysis)
         results.append({
             "Review": row.Text[:150] + ("..." if len(row.Text) > 150 else ""),
+            "Full Review": row.Text,
             "Star Rating": row.Score,
             "AI Sentiment": analysis.get("sentiment", "unknown"),
             "Confidence": analysis.get("confidence", 0.0),
             "Priority": priority,
             "Keywords": ", ".join(analysis.get("keywords", [])),
             "Summary": analysis.get("summary", ""),
+            "Aspects": analysis.get("aspects", []),
             "Error": analysis.get("error", False),
         })
 
@@ -220,16 +222,54 @@ if "results_df" in st.session_state:
         if search_term:
             filtered = filtered[filtered["Review"].str.contains(search_term, case=False, na=False)]
 
-        st.dataframe(style_results(filtered.drop(columns=["Error"])), use_container_width=True)
+        display_cols = [c for c in filtered.columns if c not in ("Error", "Full Review", "Aspects")]
+        st.dataframe(style_results(filtered[display_cols]), use_container_width=True)
         st.caption(f"Showing {len(filtered)} of {len(results_df)} analyzed reviews.")
 
-        csv_data = filtered.drop(columns=["Error"]).to_csv(index=False).encode("utf-8")
+        csv_data = filtered[display_cols].to_csv(index=False).encode("utf-8")
         st.download_button(
             "⬇️ Export queue to CSV",
             data=csv_data,
             file_name="reviewlens_results.csv",
             mime="text/csv",
         )
+
+        st.divider()
+        st.subheader("📄 Review Detail View")
+        if filtered.empty:
+            st.info("No reviews match the current filters.")
+        else:
+            options = filtered.index.tolist()
+            selected_idx = st.selectbox(
+                "Select a review to inspect",
+                options=options,
+                format_func=lambda i: f"#{i}: {filtered.loc[i, 'Review'][:60]}...",
+            )
+            detail = filtered.loc[selected_idx]
+
+            with st.container(border=True):
+                st.write(f"**Full Review:** {detail['Full Review']}")
+                d1, d2, d3 = st.columns(3)
+                d1.metric("Star Rating", f"{detail['Star Rating']}⭐")
+                d2.metric("AI Sentiment", detail["AI Sentiment"])
+                d3.metric("Confidence", f"{detail['Confidence']:.0%}")
+                st.write(f"**Priority:** {detail['Priority']}")
+                st.write(f"**Keywords:** {detail['Keywords']}")
+                st.write(f"**Summary:** {detail['Summary']}")
+
+                aspects = detail.get("Aspects", [])
+                if aspects:
+                    st.write("**Aspects mentioned:**")
+                    for a in aspects:
+                        st.markdown(f"- {a.get('aspect', '?').title()}: {a.get('sentiment', '?')}")
+
+                detail_reply_key = f"detail_reply_{selected_idx}"
+                if st.button("✍️ Draft Reply for this review", key=f"detail_draft_btn_{selected_idx}"):
+                    with st.spinner("Drafting reply..."):
+                        reply = draft_reply(detail["Full Review"], detail["AI Sentiment"])
+                        st.session_state[detail_reply_key] = reply
+                if detail_reply_key in st.session_state:
+                    st.text_area("Suggested reply", st.session_state[detail_reply_key], key=f"detail_reply_area_{selected_idx}")
 
     # ----- Flagged for Action tab -----
     with tab_flagged:
