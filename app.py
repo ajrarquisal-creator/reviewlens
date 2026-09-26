@@ -3,12 +3,13 @@ import pandas as pd
 import os
 
 from src.load_data import load_dataset, clean_dataset, sample_dataset, validate_dataset
-from src.genai_client import analyze_review, compute_priority, draft_reply, summarize_themes, is_conflict
+from src.genai_client import analyze_review, compute_priority, draft_reply, summarize_themes, is_conflict, aggregate_aspects
 from src.visualize import (
     sentiment_distribution_chart,
     confidence_distribution_chart,
     rating_vs_sentiment_chart,
     priority_distribution_chart,
+    aspect_breakdown_chart,
 )
 
 
@@ -92,6 +93,7 @@ if run_clicked:
     sample_df = sample_dataset(clean_df, n=num_records)
 
     results = []
+    raw_analyses = []
     progress_bar = st.progress(0, text="Starting analysis...")
 
     for i, row in enumerate(sample_df.itertuples(), start=1):
@@ -101,6 +103,7 @@ if run_clicked:
         )
         analysis = analyze_review(row.Text)
         priority = compute_priority(analysis, row.Score)
+        raw_analyses.append(analysis)
         results.append({
             "Review": row.Text[:150] + ("..." if len(row.Text) > 150 else ""),
             "Star Rating": row.Score,
@@ -119,6 +122,7 @@ if run_clicked:
     with st.spinner("Summarizing overall themes..."):
         summaries_list = results_df_temp["Summary"].dropna().tolist()
         st.session_state["theme_summary"] = summarize_themes(summaries_list)
+        st.session_state["aspect_summary"] = aggregate_aspects(raw_analyses)
 
     st.success(f"✅ Analysis complete! Analyzed {len(results)} reviews.")
 
@@ -184,6 +188,11 @@ if "results_df" in st.session_state:
                     st.markdown(f"- {c}")
         else:
             st.info("Run analysis to see AI-generated insights here.")
+
+        if "aspect_summary" in st.session_state and st.session_state["aspect_summary"]:
+            aspect_fig = aspect_breakdown_chart(st.session_state["aspect_summary"])
+            if aspect_fig:
+                st.plotly_chart(aspect_fig, use_container_width=True)
 
         with st.expander("More charts: Priority & Confidence distribution"):
             chart_col3, chart_col4 = st.columns(2)

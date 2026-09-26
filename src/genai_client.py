@@ -34,7 +34,8 @@ Given a single product review, respond with ONLY a JSON object (no markdown, no 
   "sentiment": "positive" | "neutral" | "negative",
   "confidence": a number between 0 and 1,
   "keywords": a list of 3-5 short keyword strings from the review,
-  "summary": a one-sentence summary of the review
+  "summary": a one-sentence summary of the review,
+  "aspects": a list of 1-4 objects, each {"aspect": short product aspect like \"shipping\", \"taste\", \"price\", \"packaging\", \"quality\", \"customer service\", "sentiment": "positive" | "neutral" | "negative"}. Only include aspects actually discussed in the review.
 }
 """
 
@@ -205,3 +206,25 @@ def summarize_themes(review_summaries: list, max_retries: int = 3) -> dict:
         "top_praises": [],
         "overall_takeaway": f"Could not generate summary: {last_error}",
     }
+
+
+def aggregate_aspects(results: list) -> dict:
+    """
+    Combine per-review aspects into aspect-level counts and sentiment breakdown.
+    results: list of analysis dicts (each may have an 'aspects' key).
+    Returns: {aspect_name: {"positive": n, "neutral": n, "negative": n, "total": n}}
+    """
+    summary = {}
+    for r in results:
+        for item in r.get("aspects", []) or []:
+            aspect = item.get("aspect", "").strip().lower()
+            sentiment = item.get("sentiment", "neutral")
+            if not aspect:
+                continue
+            if aspect not in summary:
+                summary[aspect] = {"positive": 0, "neutral": 0, "negative": 0, "total": 0}
+            if sentiment not in summary[aspect]:
+                sentiment = "neutral"
+            summary[aspect][sentiment] += 1
+            summary[aspect]["total"] += 1
+    return summary
