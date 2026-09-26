@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 from src.load_data import load_dataset, clean_dataset, sample_dataset, validate_dataset
-from src.genai_client import analyze_review, compute_priority, draft_reply, summarize_themes, is_conflict, aggregate_aspects
+from src.genai_client import analyze_review, compute_priority, draft_reply, summarize_themes, is_conflict, aggregate_aspects, get_flag_reason
 from src.visualize import (
     sentiment_distribution_chart,
     confidence_distribution_chart,
@@ -248,11 +248,20 @@ if "results_df" in st.session_state:
                 mime="text/csv",
             )
 
-            st.subheader("✍️ Draft Replies")
+            st.subheader("🧭 Action Center")
             for idx, row in flagged_df.reset_index(drop=True).iterrows():
                 with st.expander(f"Review: {row['Review'][:80]}..."):
-                    st.write(f"**Sentiment:** {row['AI Sentiment']} | **Star Rating:** {row['Star Rating']}")
+                    fake_analysis = {
+                        "sentiment": row["AI Sentiment"],
+                        "confidence": row["Confidence"],
+                    }
+                    flag_info = get_flag_reason(fake_analysis, row["Star Rating"], row["Priority"])
+
+                    st.write(f"**Sentiment:** {row['AI Sentiment']} | **Star Rating:** {row['Star Rating']} | **Confidence:** {row['Confidence']:.0%}")
                     st.write(f"**Summary:** {row['Summary']}")
+                    st.warning(f"**Why flagged:** {flag_info['reason']}")
+                    st.info(f"**Suggested action:** {flag_info['action']}")
+
                     reply_key = f"reply_{idx}"
                     if st.button(f"✍️ Draft Reply", key=f"draft_btn_{idx}"):
                         with st.spinner("Drafting reply..."):
