@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 from src.load_data import load_dataset, clean_dataset, sample_dataset, validate_dataset
-from src.genai_client import analyze_review, compute_priority, draft_reply, summarize_themes, is_conflict, aggregate_aspects, get_flag_reason, explain_conflict
+from src.genai_client import analyze_review, compute_priority, draft_reply, summarize_themes, is_conflict, aggregate_aspects, get_flag_reason, explain_conflict, generate_recommendations
 from src.visualize import (
     sentiment_distribution_chart,
     confidence_distribution_chart,
@@ -123,8 +123,18 @@ if run_clicked:
 
     with st.spinner("Summarizing overall themes..."):
         summaries_list = results_df_temp["Summary"].dropna().tolist()
-        st.session_state["theme_summary"] = summarize_themes(summaries_list)
-        st.session_state["aspect_summary"] = aggregate_aspects(raw_analyses)
+        theme_summary = summarize_themes(summaries_list)
+        aspect_summary = aggregate_aspects(raw_analyses)
+        st.session_state["theme_summary"] = theme_summary
+        st.session_state["aspect_summary"] = aspect_summary
+
+        conflict_count_temp = results_df_temp.apply(
+            lambda r: is_conflict(r["AI Sentiment"], r["Star Rating"]), axis=1
+        ).sum()
+        high_priority_count_temp = (results_df_temp["Priority"] == "High").sum()
+        st.session_state["recommendations"] = generate_recommendations(
+            theme_summary, aspect_summary, conflict_count_temp, high_priority_count_temp
+        )
 
     st.success(f"✅ Analysis complete! Analyzed {len(results)} reviews.")
 
@@ -173,6 +183,12 @@ if "results_df" in st.session_state:
             with st.container(border=True):
                 st.markdown("**💡 Overall AI Summary**")
                 st.write(theme.get("overall_takeaway", "N/A"))
+
+        if "recommendations" in st.session_state:
+            with st.container(border=True):
+                st.markdown("**🎯 Recommendations**")
+                for rec in st.session_state["recommendations"]:
+                    st.markdown(f"- {rec}")
 
         st.divider()
         st.markdown("### 🔍 Customer Insights")
